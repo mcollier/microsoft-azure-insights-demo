@@ -123,8 +123,8 @@ namespace GetWebMetrics
         private static async Task<MetricDefinitionListResponse> GetWebMetricDefinitions(TokenCloudCredentials credentials)
         {
             string resourceUri =
-                string.Format("/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Web/sites/collierwebapi2016/",
-                    _subscriptionId, _resourceGroupName);
+                string.Format("/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Web/sites/{2}/",
+                    _subscriptionId, _resourceGroupName, _siteName);
 
             CancellationToken ct = new CancellationToken();
 
