@@ -60,7 +60,7 @@ namespace GetWebMetrics
             PrintMetricDefinitions(vmMetricDefinitions);
 
             string filter = "(name.value eq 'Percentage CPU' or name.value eq 'Network In')";
-            MetricListResponse vmMetricList = GetResourceMetrics(creds, classicVmResourceUri, filter, TimeSpan.FromHours(1), "PT1H");
+            MetricListResponse vmMetricList = GetResourceMetrics(creds, classicVmResourceUri, filter, TimeSpan.FromHours(1), "PT5M");
             PrintMetricValues(vmMetricList);
 
 
