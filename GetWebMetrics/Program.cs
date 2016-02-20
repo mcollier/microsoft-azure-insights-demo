@@ -1,11 +1,6 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Configuration;
-using System.Linq;
-using System.Net;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Azure;
 using Microsoft.Azure.Insights;
 using Microsoft.Azure.Insights.Models;
@@ -20,8 +15,13 @@ namespace GetWebMetrics
         private static string _applicationId;
         private static string _applicationPwd;
 
-        private static string _resourceGroupName;
+        private static string _webAppResourceGroupName;
         private static string _siteName;
+        private static string _vmName;
+        private static string _vmResourceGroupName;
+
+        private const string WebAppResourceUriFormat = "/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Web/sites/{2}/";
+        private const string VirtualMachineResourceUriFormat = "/subscriptions/{0}/resourceGroups/{1}/providers/microsoft.classiccompute/virtualmachines/{2}/";
 
         static void Main(string[] args)
         {
@@ -29,55 +29,47 @@ namespace GetWebMetrics
             _tenantId = ConfigurationManager.AppSettings["AzureADTenantId"];
             _applicationId = ConfigurationManager.AppSettings["AzureADApplicationId"];
             _applicationPwd = ConfigurationManager.AppSettings["AzureADApplicationPassword"];
-            _resourceGroupName = ConfigurationManager.AppSettings["AzureResourceGroupName"];
+            _webAppResourceGroupName = ConfigurationManager.AppSettings["AzureWebAppResourceGroupName"];
             _siteName = ConfigurationManager.AppSettings["AzureWebAppName"];
+            _vmResourceGroupName = ConfigurationManager.AppSettings["AzureClassicVmResourceGroupName"];
+            _vmName = ConfigurationManager.AppSettings["AzureClassicVmName"];
+
+
+            string webAppResourceUri = string.Format(WebAppResourceUriFormat, _subscriptionId, _webAppResourceGroupName, _siteName);
+            string classicVmResourceUri = string.Format(VirtualMachineResourceUriFormat, _subscriptionId, _vmResourceGroupName, _vmName);
 
             var token = GetAccessToken();
             var creds = new TokenCloudCredentials(_subscriptionId, token);
 
-            Console.WriteLine("--------- List all metric definitions ---------");           
+            /* Web App */
+            Console.WriteLine("--------- List available Web App metric definitions ---------");
 
-            var definitions = GetWebMetricDefinitions(creds);
+            MetricDefinitionListResponse webMetricDefinitions = GetAvailableMetricDefinitions(creds, webAppResourceUri);
+            PrintMetricDefinitions(webMetricDefinitions);
+            
+            Console.WriteLine("--------- List Web App metrics ---------");
 
-            Task.WaitAll(definitions);
+            MetricListResponse webMetricList = GetResourceMetrics(creds, webAppResourceUri, string.Empty, TimeSpan.FromHours(1), "PT1M" );
+            PrintMetricValues(webMetricList);
 
-            var response = definitions.Result;
-            foreach (var d in response.MetricDefinitionCollection.Value)
-            {
-                Console.WriteLine("Metric: {0}", d.Name.Value);
 
-                Console.WriteLine("    Time Grains");
-                foreach (var x in d.MetricAvailabilities)
-                {
-                    Console.WriteLine("        {0}", x.TimeGrain);
-                }
-            }
+            /* Classic Virtual Machine */
+            Console.WriteLine("--------- List Classic Compute metrics ---------");
 
-            Console.WriteLine("Press any key to continue . . . ");
-            Console.ReadLine();
+            MetricDefinitionListResponse vmMetricDefinitions = GetAvailableMetricDefinitions(creds, classicVmResourceUri);
+            PrintMetricDefinitions(vmMetricDefinitions);
 
-            Console.WriteLine("--------- List all metrics ---------");
+            string filter = "(name.value eq 'Percentage CPU' or name.value eq 'Network In')";
+            MetricListResponse vmMetricList = GetResourceMetrics(creds, classicVmResourceUri, filter, TimeSpan.FromHours(1), "PT1H");
+            PrintMetricValues(vmMetricList);
 
-            var metric = GetWebMetrics(creds);
-            Task.WaitAll(metric);
 
-            var metricList = metric.Result;
-
-            foreach (Metric m in metricList.MetricCollection.Value)
-            {
-                Console.WriteLine("Metric: {0}", m.Name.Value);
-                foreach (MetricValue metricValue in m.MetricValues)
-                {
-                    Console.WriteLine("{0} - {1}", metricValue.Timestamp, metricValue.Average);
-                }
-
-                Console.WriteLine();
-            }
 
             Console.WriteLine("Press any key to exit!");
             Console.ReadLine();
 
         }
+
 
         private static string GetAccessToken()
         {
@@ -95,42 +87,64 @@ namespace GetWebMetrics
             return token;
         }
 
-        private static async Task<MetricListResponse> GetWebMetrics(TokenCloudCredentials credentials)
+        private static void PrintMetricValues(MetricListResponse metricList)
         {
-            string start = DateTime.UtcNow.AddHours(-1).ToString("yyy-MM-ddTHH:mmZ");
-            string end = DateTime.UtcNow.ToString("yyy-MM-ddTHH:mmZ");
-
-            string resourceUri = string.Format("/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Web/sites/{2}/",
-                    _subscriptionId, _resourceGroupName, _siteName);
-
-            //string filterString = string.Format("startTime eq {0} and endTime eq {1} and timeGrain eq duration'PT1M'",
-            //        start, end);
-
-            string filterString = string.Format("(name.value eq 'Requests' or name.value eq 'AverageResponseTime') and startTime eq {0} and endTime eq {1} and timeGrain eq duration'PT1M'",
-                    start, end);
-
-            CancellationToken ct = new CancellationToken();
-
-            using (var client = new InsightsClient(credentials))
+            foreach (Metric m in metricList.MetricCollection.Value)
             {
-                var x = await client.MetricDefinitionOperations.GetMetricDefinitionsAsync(resourceUri, null);
+                Console.WriteLine("Metric: {0}", m.Name.Value);
+                foreach (MetricValue metricValue in m.MetricValues)
+                {
+                    Console.WriteLine("{0} - {1}", metricValue.Timestamp, metricValue.Average);
+                }
 
-                return await client.MetricOperations.GetMetricsAsync(resourceUri, filterString,
-                    ct);
+                Console.WriteLine();
             }
         }
 
-        private static async Task<MetricDefinitionListResponse> GetWebMetricDefinitions(TokenCloudCredentials credentials)
+        private static void PrintMetricDefinitions(MetricDefinitionListResponse definitions)
         {
-            string resourceUri =
-                string.Format("/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Web/sites/{2}/",
-                    _subscriptionId, _resourceGroupName, _siteName);
+            foreach (var d in definitions.MetricDefinitionCollection.Value)
+            {
+                Console.WriteLine("Metric: {0}", d.Name.Value);
 
-            CancellationToken ct = new CancellationToken();
+                Console.WriteLine("    Time Grains");
+                foreach (var x in d.MetricAvailabilities)
+                {
+                    Console.WriteLine("        {0}", x.TimeGrain);
+                }
+
+                Console.WriteLine();
+            }
+        }
+
+        private static MetricListResponse GetResourceMetrics(TokenCloudCredentials credentials, string resourceUri, string filter, TimeSpan period, string duration)
+        {
+            var dateTimeFormat = "yyy-MM-ddTHH:mmZ";
+
+            string start = DateTime.UtcNow.Subtract(period).ToString(dateTimeFormat);
+            string end = DateTime.UtcNow.ToString(dateTimeFormat);
+
+            // TODO: Make this more robust.
+            StringBuilder sb = new StringBuilder(filter);
+
+            if (!string.IsNullOrEmpty(filter))
+            {
+                sb.Append(" and ");
+            }
+            sb.AppendFormat("startTime eq {0} and endTime eq {1}", start, end);
+            sb.AppendFormat(" and timeGrain eq duration'{0}'", duration);
 
             using (var client = new InsightsClient(credentials))
             {
-                return await client.MetricDefinitionOperations.GetMetricDefinitionsAsync(resourceUri, null, ct);
+                return client.MetricOperations.GetMetrics(resourceUri, sb.ToString());
+            }
+        }
+
+        private static MetricDefinitionListResponse GetAvailableMetricDefinitions(TokenCloudCredentials credentials, string resourceUri)
+        {
+            using (var client = new InsightsClient(credentials))
+            {
+                return client.MetricDefinitionOperations.GetMetricDefinitions(resourceUri, null);
             }
         }
     }
