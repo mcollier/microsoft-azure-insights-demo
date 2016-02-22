@@ -7,8 +7,8 @@
     <ProjectGuid>{00BEF667-D593-4E21-B26A-D2545D77F120}</ProjectGuid>
     <OutputType>Exe</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>GetWebMetrics</RootNamespace>
-    <AssemblyName>GetWebMetrics</AssemblyName>
+    <RootNamespace>GetResourceMetrics</RootNamespace>
+    <AssemblyName>GetResourceMetrics</AssemblyName>
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
   </PropertyGroup>

@@ -6,7 +6,7 @@ using Microsoft.Azure.Insights;
 using Microsoft.Azure.Insights.Models;
 using Microsoft.IdentityModel.Clients.ActiveDirectory;
 
-namespace GetWebMetrics
+namespace GetResourceMetrics
 {
     class Program
     {
