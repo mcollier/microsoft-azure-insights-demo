@@ -1,10 +1,10 @@
 ﻿using System;
 using System.Configuration;
 using System.Text;
-using Microsoft.Azure;
 using Microsoft.Azure.Insights;
 using Microsoft.Azure.Insights.Models;
 using Microsoft.IdentityModel.Clients.ActiveDirectory;
+using System.Collections.Generic;
 
 namespace GetResourceMetrics
 {
@@ -22,6 +22,8 @@ namespace GetResourceMetrics
 
         private const string WebAppResourceUriFormat = "/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Web/sites/{2}/";
         private const string VirtualMachineResourceUriFormat = "/subscriptions/{0}/resourceGroups/{1}/providers/microsoft.classiccompute/virtualmachines/{2}/";
+        private const string AzureStreamAnalyticsUriFormat = "/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.StreamAnalytics/streamingjobs/{2}";
+        private const string IOTHubUriFormat = "/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Devices/IotHubs/{2}";
 
         static void Main(string[] args)
         {
@@ -29,6 +31,7 @@ namespace GetResourceMetrics
             _tenantId = ConfigurationManager.AppSettings["AzureADTenantId"];
             _applicationId = ConfigurationManager.AppSettings["AzureADApplicationId"];
             _applicationPwd = ConfigurationManager.AppSettings["AzureADApplicationPassword"];
+
             _webAppResourceGroupName = ConfigurationManager.AppSettings["AzureWebAppResourceGroupName"];
             _siteName = ConfigurationManager.AppSettings["AzureWebAppName"];
             _vmResourceGroupName = ConfigurationManager.AppSettings["AzureClassicVmResourceGroupName"];
@@ -38,29 +41,29 @@ namespace GetResourceMetrics
             string webAppResourceUri = string.Format(WebAppResourceUriFormat, _subscriptionId, _webAppResourceGroupName, _siteName);
             string classicVmResourceUri = string.Format(VirtualMachineResourceUriFormat, _subscriptionId, _vmResourceGroupName, _vmName);
 
-            var token = GetAccessToken();
-            var creds = new TokenCloudCredentials(_subscriptionId, token);
+            var creds = new InsightsClientCredentials(clientId: _applicationId, clientSecret: _applicationPwd,
+                                                      subscriptionId: _subscriptionId, tenantId: _tenantId);
 
             /* Web App */
             Console.WriteLine("--------- List available Web App metric definitions ---------");
 
-            MetricDefinitionListResponse webMetricDefinitions = GetAvailableMetricDefinitions(creds, webAppResourceUri);
+            IEnumerable<MetricDefinition> webMetricDefinitions = GetAvailableMetricDefinitions(creds, webAppResourceUri);
             PrintMetricDefinitions(webMetricDefinitions);
-            
+
             Console.WriteLine("--------- List Web App metrics ---------");
 
-            MetricListResponse webMetricList = GetResourceMetrics(creds, webAppResourceUri, string.Empty, TimeSpan.FromHours(1), "PT1M" );
+            IEnumerable<Metric> webMetricList = GetResourceMetrics(creds, webAppResourceUri, string.Empty, TimeSpan.FromHours(1), "PT1M");
             PrintMetricValues(webMetricList);
 
 
             /* Classic Virtual Machine */
             Console.WriteLine("--------- List Classic Compute metrics ---------");
 
-            MetricDefinitionListResponse vmMetricDefinitions = GetAvailableMetricDefinitions(creds, classicVmResourceUri);
+            IEnumerable<MetricDefinition> vmMetricDefinitions = GetAvailableMetricDefinitions(creds, classicVmResourceUri);
             PrintMetricDefinitions(vmMetricDefinitions);
 
             string filter = "(name.value eq 'Percentage CPU' or name.value eq 'Network In')";
-            MetricListResponse vmMetricList = GetResourceMetrics(creds, classicVmResourceUri, filter, TimeSpan.FromHours(1), "PT5M");
+            IEnumerable<Metric> vmMetricList = GetResourceMetrics(creds, classicVmResourceUri, filter, TimeSpan.FromHours(1), "PT5M");
             PrintMetricValues(vmMetricList);
 
 
@@ -87,23 +90,23 @@ namespace GetResourceMetrics
             return token;
         }
 
-        private static void PrintMetricValues(MetricListResponse metricList)
+        private static void PrintMetricValues(IEnumerable<Metric> metricList)
         {
-            foreach (Metric m in metricList.MetricCollection.Value)
+            foreach (Metric m in metricList)
             {
                 Console.WriteLine("Metric: {0}", m.Name.Value);
-                foreach (MetricValue metricValue in m.MetricValues)
+                foreach (MetricValue metricValue in m.Data)
                 {
-                    Console.WriteLine("{0} - {1}", metricValue.Timestamp, metricValue.Average);
+                    Console.WriteLine("{0} - {1}", metricValue.TimeStamp, metricValue.Average);
                 }
 
                 Console.WriteLine();
             }
         }
 
-        private static void PrintMetricDefinitions(MetricDefinitionListResponse definitions)
+        private static void PrintMetricDefinitions(IEnumerable<MetricDefinition> definitions)
         {
-            foreach (var d in definitions.MetricDefinitionCollection.Value)
+            foreach (var d in definitions)
             {
                 Console.WriteLine("Metric: {0}", d.Name.Value);
 
@@ -117,7 +120,7 @@ namespace GetResourceMetrics
             }
         }
 
-        private static MetricListResponse GetResourceMetrics(TokenCloudCredentials credentials, string resourceUri, string filter, TimeSpan period, string duration)
+        private static IEnumerable<Metric> GetResourceMetrics(InsightsClientCredentials credentials, string resourceUri, string filter, TimeSpan period, string duration)
         {
             var dateTimeFormat = "yyy-MM-ddTHH:mmZ";
 
@@ -127,6 +130,8 @@ namespace GetResourceMetrics
             // TODO: Make this more robust.
             StringBuilder sb = new StringBuilder(filter);
 
+            // If you obmit filtering for a Metric Name with name.value you receive
+            // "MetricNames are not defined" in certain cases (ASA, IoTHub)
             if (!string.IsNullOrEmpty(filter))
             {
                 sb.Append(" and ");
@@ -136,15 +141,17 @@ namespace GetResourceMetrics
 
             using (var client = new InsightsClient(credentials))
             {
-                return client.MetricOperations.GetMetrics(resourceUri, sb.ToString());
+                client.SubscriptionId = credentials.SubscriptionId;
+                return client.Metrics.List(resourceUri, sb.ToString());
             }
         }
 
-        private static MetricDefinitionListResponse GetAvailableMetricDefinitions(TokenCloudCredentials credentials, string resourceUri)
+        private static IEnumerable<MetricDefinition> GetAvailableMetricDefinitions(InsightsClientCredentials credentials, string resourceUri)
         {
             using (var client = new InsightsClient(credentials))
             {
-                return client.MetricDefinitionOperations.GetMetricDefinitions(resourceUri, null);
+                client.SubscriptionId = credentials.SubscriptionId;
+                return client.MetricDefinitions.List(resourceUri, null);
             }
         }
     }
